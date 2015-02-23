@@ -5,7 +5,7 @@ use POSIX qw/strftime/;
 
 #$/ = undef; 
 $port = 443;
-$maxprocs = 5;
+$maxprocs = 10;
 $pm = new Parallel::ForkManager($maxprocs);
 
 while (<>) {
@@ -29,7 +29,7 @@ sub lookup {
   @addresses = map { inet_ntoa($_) } @addresses[4 .. $#addresses];
 
   foreach $address (@addresses) {
-  $input = `/bin/echo QUIT | ./timeout 2 /usr/bin/openssl s_client -showcerts -connect $host:$port 2>/dev/null`;
+  $input = `/bin/echo QUIT | /usr/bin/timeout 2 /usr/bin/openssl s_client -showcerts -connect $host:$port 2>/dev/null`;
 
   if ($input !~ /^CONNECTED/) {
     print STDERR "Failed to connect to $host\n";
@@ -44,6 +44,10 @@ sub lookup {
   while ($chain) {
     $chain =~ /(.*?-----END CERTIFICATE-----)\n*/s;
     $cert = $1;
+    if (!$cert) {
+      print STDERR "No certificate found for $host:$port\n";
+      last;
+    }
   
     # Get certificate index
     $cert =~ /^\s*([0-9]*)/s;
@@ -58,7 +62,11 @@ sub lookup {
     $issuer = $1;
   
     # Get fingerprint
-    $data =  `/bin/echo "$cert" | openssl x509 -fingerprint -dates -out /dev/null`;
+    open OUT, "/usr/bin/openssl x509 -fingerprint -dates -out /dev/null<";
+    print OUT $cert;
+    while (<OUT>) {
+      $data += $_;
+    }
     $data =~ /SHA1 Fingerprint=(.*?)\n/m;
     $fingerprint = $1;
     $fingerprint =~ s/://g;
@@ -69,7 +77,9 @@ sub lookup {
   
     #$certs[$i] = $1;
   
-    print "$date\t$host\t$address\t$port\t$index\t$subject\t$issuer\t$startdate\t$enddate\t$fingerprint\n";
+    #$separator = chr(0x1);
+    $separator = "\t";
+    print "$date$separator$host$separator$address$separator$port$separator$index$separator$subject$separator$issuer$separator$startdate$separator$enddate$separator$fingerprint\n";
 
   
     $chain =~ s/.*?-----END CERTIFICATE-----\n*//s;
